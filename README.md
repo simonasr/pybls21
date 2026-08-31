@@ -16,3 +16,5 @@ The following functions are available:
 `set_manual_fan_speed_percent(speed_percent: int)`
 `set_temperature(temp_celsius: int)`
 `reset_filter_change_timer()`
+
+See [extended telemetry](TELEMETRY.md) for the measurements returned by `poll()`.
