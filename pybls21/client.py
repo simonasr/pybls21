@@ -27,6 +27,29 @@ def _to_signed_16bit(value: int) -> int:
     return value - 0x10000 if value > 0x7FFF else value
 
 
+def _decode_temperature(value: int) -> Optional[float]:
+    value = _to_signed_16bit(value)
+    if value in (-32768, 32767):
+        return None
+    return value / 10
+
+
+def _decode_optional_sensor(value: int) -> Optional[int]:
+    return None if value == 0 else value
+
+
+def _decode_timer_seconds(time_01: int, time_02: int) -> int:
+    minutes, seconds = time_01.to_bytes(2, "big")
+    hours = time_02 & 0xFF
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _decode_duration_minutes(time_01: int, time_02: int) -> int:
+    hours, minutes = time_01.to_bytes(2, "big")
+    days = time_02
+    return days * 24 * 60 + hours * 60 + minutes
+
+
 class S21Client:
     def __init__(self, host: str, port: int = 502):
         self.host = host
@@ -34,6 +57,10 @@ class S21Client:
         self.client = AsyncModbusTcpClient(host=self.host, port=self.port)
         self.device: Optional[ClimateDevice] = None
         self.lock = asyncio.Lock()
+
+    def _mark_device_unavailable(self) -> None:
+        if isinstance(self.device, ClimateDevice):
+            self.device = self.device._replace(available=False)
 
     async def poll(self) -> ClimateDevice:
         return await self._do_with_connection(self._poll)
@@ -139,17 +166,21 @@ class S21Client:
 
     async def _do_with_connection(self, func: Callable[[], Awaitable[Any]]) -> Any:
         async with self.lock:  # Device does not support multiple connections
-            if not await self.client.connect():
-                raise ModbusCommunicationException("Failed to open Modbus TCP connection")
-
+            connected = False
             try:
+                connected = await self.client.connect()
+                if not connected:
+                    raise ModbusCommunicationException(
+                        "Failed to open Modbus TCP connection"
+                    )
                 return await func()
             except Exception:
-                if isinstance(self.device, ClimateDevice):
-                    self.device.available = False
+                self._mark_device_unavailable()
                 raise
             finally:
-                self.client.close()  # Also, long connections break over time and become unusable
+                if connected:
+                    # Long connections break over time and become unusable.
+                    self.client.close()
 
     async def _poll(self) -> ClimateDevice:
         if (await self._read_input_registers(IR_DeviceTYPE, count=1))[0] != 1:
@@ -162,15 +193,17 @@ class S21Client:
         is_on: bool = coils[CL_POWER]
         is_boosting: bool = coils[CL_Boost_MODE]
         set_temperature: int = holding_registers[HR_SetTEMP]
-        current_humidity: int = input_registers[IR_CurRH_Int]
+        current_humidity: Optional[int] = _decode_optional_sensor(
+            input_registers[IR_CurRH_Int]
+        )
         filter_state: int = input_registers[IR_StateFILTER]
         alarm_state: int = input_registers[IR_ALARM]
         max_fan_level: int = holding_registers[HR_MaxSPEED_MODE]
         current_fan_level: int = holding_registers[HR_SPEED_MODE]  # 255 - manual
-        temp_before_heating_x10: int = _to_signed_16bit(
+        temp_before_heating: Optional[float] = _decode_temperature(
             input_registers[IR_CurTEMP_SuAirIn]
         )
-        temp_after_heating_x10: int = _to_signed_16bit(
+        temp_after_heating: Optional[float] = _decode_temperature(
             input_registers[IR_CurTEMP_SuAirOut]
         )
         supply_fan_speed: int = input_registers[IR_SuRPM]
@@ -187,12 +220,12 @@ class S21Client:
             unique_id=f"S21_{self.host}_{self.port}",
             temperature_unit=TEMP_CELSIUS,  # Seems like no Fahrenheit option is available
             precision=1,
-            current_temperature=temp_after_heating_x10 / 10,
+            current_temperature=temp_after_heating,
             target_temperature=set_temperature,
             target_temperature_step=1,
             min_temp=15,
             max_temp=30,
-            current_humidity=None if current_humidity == 0 else current_humidity,
+            current_humidity=current_humidity,
             hvac_mode=HVACMode.OFF
             if not is_on
             else HVACMode.FAN_ONLY
@@ -211,9 +244,13 @@ class S21Client:
             else HVACAction.COOLING
             if operation_mode == 2
             else HVACAction.HEATING
-            if temp_before_heating_x10 < temp_after_heating_x10
+            if temp_before_heating is not None
+            and temp_after_heating is not None
+            and temp_before_heating < temp_after_heating
             else HVACAction.COOLING
-            if temp_before_heating_x10 > temp_after_heating_x10
+            if temp_before_heating is not None
+            and temp_after_heating is not None
+            and temp_before_heating > temp_after_heating
             else HVACAction.IDLE,
             hvac_modes=[
                 HVACMode.OFF,
@@ -230,13 +267,58 @@ class S21Client:
             model="S21",
             sw_version=_parse_firmware_version(firmware_info),
             is_boosting=is_boosting,
-            current_intake_temperature=temp_before_heating_x10 / 10,
+            current_intake_temperature=temp_before_heating,
             manual_fan_speed_percent=manual_fan_speed_percent,
             max_fan_level=max_fan_level,
             filter_state=filter_state,
             alarm_state=alarm_state,
             supply_fan_speed=supply_fan_speed,
             extract_fan_speed=extract_fan_speed,
+            selected_temperature=_decode_temperature(
+                input_registers[IR_CurSelTEMP]
+            ),
+            extract_air_inlet_temperature=_decode_temperature(
+                input_registers[IR_CurTEMP_ExAirIn]
+            ),
+            exhaust_air_outlet_temperature=_decode_temperature(
+                input_registers[IR_CurTEMP_ExAirOut]
+            ),
+            external_temperature=_decode_temperature(input_registers[IR_CurTEMP_Ext]),
+            after_preheater_temperature=_decode_temperature(
+                input_registers[IR_CurTEMP_AfterPreHeater]
+            ),
+            before_main_heater_temperature=_decode_temperature(
+                input_registers[IR_CurTEMP_BeforeMainHeater]
+            ),
+            return_water_temperature=_decode_temperature(
+                input_registers[IR_CurTEMP_Water]
+            ),
+            rtc_battery_voltage_mv=input_registers[IR_CurVBAT],
+            external_humidity=_decode_optional_sensor(
+                input_registers[IR_CurRH_Ext]
+            ),
+            current_co2=_decode_optional_sensor(input_registers[IR_CurCO2_Int]),
+            external_co2=_decode_optional_sensor(input_registers[IR_CurCO2_Ext]),
+            current_pm25=_decode_optional_sensor(input_registers[IR_CurPM25_Int]),
+            external_pm25=_decode_optional_sensor(input_registers[IR_CurPM25_Ext]),
+            current_voc=_decode_optional_sensor(input_registers[IR_CurVOC_Int]),
+            external_voc=_decode_optional_sensor(input_registers[IR_CurVOC_Ext]),
+            analog_sensor_percent=input_registers[IR_Cur0_10V],
+            supply_airflow=input_registers[IR_CurAirFlow_Su],
+            extract_airflow=input_registers[IR_CurAirFlow_Ex],
+            supply_pressure=input_registers[IR_CurPressure_Su],
+            extract_pressure=input_registers[IR_CurPressure_Ex],
+            timer_remaining_seconds=_decode_timer_seconds(
+                input_registers[IR_TimerTime_01], input_registers[IR_TimerTime_02]
+            ),
+            filter_remaining_minutes=_decode_duration_minutes(
+                input_registers[IR_FilterTime_01], input_registers[IR_FilterTime_02]
+            ),
+            total_working_time_minutes=_decode_duration_minutes(
+                input_registers[IR_MotorTime_01], input_registers[IR_MotorTime_02]
+            ),
+            weekly_schedule_fan_mode=input_registers[IR_WeeklySPEED_MODE],
+            weekly_schedule_target_temperature=input_registers[IR_WeeklySetTEMP],
         )
 
         return self.device

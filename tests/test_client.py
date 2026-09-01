@@ -108,15 +108,49 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.server.data_bank.set_holding_registers(HR_SPEED_MODE, [2])
         self.server.data_bank.set_holding_registers(HR_OPERATION_MODE, [0])
         self.server.data_bank.set_holding_registers(HR_ManualSPEED, [100])
-        self.server.data_bank.set_input_registers(IR_CurRH_Int, [0])
-        self.server.data_bank.set_input_registers(IR_SuRPM, [10])
-        self.server.data_bank.set_input_registers(IR_ExRPM, [20])
-        self.server.data_bank.set_input_registers(IR_StateFILTER, [3])
-        self.server.data_bank.set_input_registers(IR_ALARM, [2])
-        self.server.data_bank.set_input_registers(IR_CurTEMP_SuAirIn, [108])
-        self.server.data_bank.set_input_registers(IR_CurTEMP_SuAirOut, [192])
         self.server.data_bank.set_input_registers(
-            IR_VerMAIN_FMW_start, [36, 2053, 2019]
+            0,
+            [
+                215,  # selected temperature: 21.5 °C
+                108,  # supply air in: 10.8 °C
+                192,  # supply air out: 19.2 °C
+                201,  # extract air in: 20.1 °C
+                78,  # exhaust air out: 7.8 °C
+                0xFFF6,  # external temperature: -1.0 °C
+                123,  # after preheater: 12.3 °C
+                234,  # before main heater: 23.4 °C
+                345,  # water temperature: 34.5 °C
+                3000,  # RTC battery: 3000 mV
+                48,  # main humidity
+                55,  # external humidity
+                650,  # main CO2
+                700,  # external CO2
+                12,  # main PM2.5
+                18,  # external PM2.5
+                35,  # main VOC
+                40,  # external VOC
+                64,  # 0-10 V sensor
+                220,  # supply airflow
+                210,  # extract airflow
+                125,  # supply pressure
+                120,  # extract pressure
+                1010,  # supply fan RPM
+                990,  # extract fan RPM
+                0x0203,  # timer: 2 minutes, 3 seconds
+                0xAB01,  # timer: 1 hour; high byte is unused
+                0x0405,  # filter timer: 4 hours, 5 minutes
+                2,  # filter timer: 2 days
+                0x0607,  # motor time: 6 hours, 7 minutes
+                300,  # motor time: 300 days
+                3,  # filter state
+                4,  # weekly schedule fan mode
+                22,  # weekly schedule target temperature
+                36,  # firmware major/minor
+                2053,  # firmware day/month
+                2019,  # firmware year
+                1,  # device type
+                2,  # alarm state
+            ],
         )
 
         client = S21Client(host=self.server.host, port=self.server.port)
@@ -135,7 +169,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
                 target_temperature_step=1,
                 min_temp=15,
                 max_temp=30,
-                current_humidity=None,
+                current_humidity=48,
                 hvac_mode=HVACMode.FAN_ONLY,
                 hvac_action=HVACAction.FAN,
                 hvac_modes=[
@@ -158,10 +192,140 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
                 max_fan_level=3,
                 filter_state=3,
                 alarm_state=2,
-                supply_fan_speed=10,
-                extract_fan_speed=20
+                supply_fan_speed=1010,
+                extract_fan_speed=990,
+                selected_temperature=21.5,
+                extract_air_inlet_temperature=20.1,
+                exhaust_air_outlet_temperature=7.8,
+                external_temperature=-1.0,
+                after_preheater_temperature=12.3,
+                before_main_heater_temperature=23.4,
+                return_water_temperature=34.5,
+                rtc_battery_voltage_mv=3000,
+                external_humidity=55,
+                current_co2=650,
+                external_co2=700,
+                current_pm25=12,
+                external_pm25=18,
+                current_voc=35,
+                external_voc=40,
+                analog_sensor_percent=64,
+                supply_airflow=220,
+                extract_airflow=210,
+                supply_pressure=125,
+                extract_pressure=120,
+                timer_remaining_seconds=3723,
+                filter_remaining_minutes=3125,
+                total_working_time_minutes=432367,
+                weekly_schedule_fan_mode=4,
+                weekly_schedule_target_temperature=22,
             ),
         )
+
+    async def test_poll_when_optional_sensors_are_absent(self):
+        client = S21Client(host=self.server.host, port=self.server.port)
+        device = await client.poll()
+
+        self.assertIsNone(device.current_humidity)
+        self.assertIsNone(device.external_humidity)
+        self.assertIsNone(device.current_co2)
+        self.assertIsNone(device.external_co2)
+        self.assertIsNone(device.current_pm25)
+        self.assertIsNone(device.external_pm25)
+        self.assertIsNone(device.current_voc)
+        self.assertIsNone(device.external_voc)
+        self.assertEqual(device.analog_sensor_percent, 0)
+        self.assertEqual(device.supply_airflow, 0)
+        self.assertEqual(device.supply_pressure, 0)
+
+    async def test_poll_when_temperature_sensors_are_unavailable(self):
+        self.server.data_bank.set_holding_registers(HR_OPERATION_MODE, [3])
+        self.server.data_bank.set_input_registers(
+            IR_CurSelTEMP,
+            [
+                0x8000,
+                0x7FFF,
+                0x8000,
+                0x7FFF,
+                0x8000,
+                0x7FFF,
+                0x8000,
+                0x7FFF,
+                0x8000,
+            ],
+        )
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        device = await client.poll()
+
+        self.assertIsNone(device.selected_temperature)
+        self.assertIsNone(device.current_intake_temperature)
+        self.assertIsNone(device.current_temperature)
+        self.assertIsNone(device.extract_air_inlet_temperature)
+        self.assertIsNone(device.exhaust_air_outlet_temperature)
+        self.assertIsNone(device.external_temperature)
+        self.assertIsNone(device.after_preheater_temperature)
+        self.assertIsNone(device.before_main_heater_temperature)
+        self.assertIsNone(device.return_water_temperature)
+        self.assertEqual(device.hvac_action, HVACAction.IDLE)
+
+    async def test_failed_reconnect_marks_previously_polled_device_unavailable(self):
+        client = S21Client(host=self.server.host, port=self.server.port)
+        await client.poll()
+        client.client.connect = AsyncMock(return_value=False)
+
+        with self.assertRaises(ModbusCommunicationException):
+            await client.poll()
+
+        self.assertFalse(client.device.available)
+
+    async def test_poll_error_marks_previously_polled_device_unavailable(self):
+        client = S21Client(host=self.server.host, port=self.server.port)
+        await client.poll()
+        client.client.connect = AsyncMock(return_value=True)
+        client.client.close = Mock()
+        client.client.read_input_registers = AsyncMock(return_value=ErrorResponse())
+
+        with self.assertRaises(ModbusCommunicationException):
+            await client.poll()
+
+        self.assertFalse(client.device.available)
+
+    def test_climate_device_legacy_constructor_keeps_new_fields_optional(self):
+        device = ClimateDevice(
+            available=True,
+            name="Blauberg S21",
+            unique_id="test-device",
+            temperature_unit="°C",
+            precision=1,
+            current_temperature=20.0,
+            target_temperature=21,
+            target_temperature_step=1,
+            min_temp=15,
+            max_temp=30,
+            current_humidity=None,
+            hvac_mode=HVACMode.OFF,
+            hvac_action=HVACAction.OFF,
+            hvac_modes=[],
+            fan_mode=None,
+            fan_modes=None,
+            supported_features=0,
+            manufacturer="Blauberg",
+            model="S21",
+            sw_version=None,
+            is_boosting=False,
+            current_intake_temperature=None,
+            manual_fan_speed_percent=0,
+            max_fan_level=3,
+            filter_state=0,
+            alarm_state=0,
+            supply_fan_speed=0,
+            extract_fan_speed=0,
+        )
+
+        self.assertIsNone(device.selected_temperature)
+        self.assertIsNone(device.current_co2)
+        self.assertIsNone(device.timer_remaining_seconds)
 
     async def test_poll_when_device_is_off(self):
         self.server.data_bank.set_coils(CL_POWER, [False])
