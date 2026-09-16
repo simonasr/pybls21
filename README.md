@@ -15,6 +15,8 @@ The following functions are available:
 `set_fan_mode(mode: int)`
 `set_manual_fan_speed_percent(speed_percent: int)`
 `set_temperature(temp_celsius: int)`
+`set_heat_exchanger_mode(mode: HeatExchangerMode)`
 `reset_filter_change_timer()`
 
-See [extended telemetry](TELEMETRY.md) for the measurements returned by `poll()`.
+`poll()` also reports the heat exchanger type, operating mode, and current
+controller output. See [extended telemetry](TELEMETRY.md) for all measurements.

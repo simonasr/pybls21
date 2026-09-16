@@ -20,6 +20,8 @@ Register names and units follow the
 | `timer_remaining_seconds` | seconds |
 | `filter_remaining_minutes`, `total_working_time_minutes` | minutes |
 | `filter_state`, `alarm_state`, `weekly_schedule_fan_mode`, `weekly_schedule_target_temperature` | protocol value |
+| `heat_exchanger_type`, `heat_exchanger_mode` | protocol enum |
+| `heat_exchanger_control_percent` | % |
 
 Unavailable temperature sensors and optional humidity, CO₂, PM2.5, and VOC
 sensors are returned as `None`. Zero remains a valid value for airflow,

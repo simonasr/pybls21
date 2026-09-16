@@ -9,6 +9,8 @@ from .models import (
     TEMP_CELSIUS,
     ClimateDevice,
     ClimateEntityFeature,
+    HeatExchangerMode,
+    HeatExchangerType,
     HVACAction,
     HVACMode,
 )
@@ -88,6 +90,10 @@ class S21Client:
         self._validate_temperature(temp_celsius)
         await self._do_with_connection(lambda: self._set_temperature(temp_celsius))
 
+    async def set_heat_exchanger_mode(self, mode: HeatExchangerMode) -> None:
+        self._validate_heat_exchanger_mode(mode)
+        await self._do_with_connection(lambda: self._set_heat_exchanger_mode(mode))
+
     async def reset_filter_change_timer(self) -> None:
         await self._do_with_connection(self._reset_filter_change_timer)
 
@@ -144,6 +150,11 @@ class S21Client:
         if not isinstance(temp_celsius, int) or not 15 <= temp_celsius <= 30:
             raise ValueError("Temperature must be between 15 and 30 °C")
 
+    @staticmethod
+    def _validate_heat_exchanger_mode(mode: HeatExchangerMode) -> None:
+        if not isinstance(mode, HeatExchangerMode):
+            raise ValueError("Heat exchanger mode must be a HeatExchangerMode value")
+
     async def _read_input_registers(self, address: int, count: int) -> List[int]:
         response = await self.client.read_input_registers(address, count=count)
         return self._get_registers(response, count, f"read input registers at {address}")
@@ -187,8 +198,8 @@ class S21Client:
             raise UnsupportedDeviceException("Unsupported device (IR_DeviceTYPE != 1)")
 
         coils = await self._read_coils(0, count=4)
-        holding_registers = await self._read_holding_registers(0, count=45)
-        input_registers = await self._read_input_registers(0, count=39)
+        holding_registers = await self._read_holding_registers(0, count=75)
+        input_registers = await self._read_input_registers(0, count=46)
 
         is_on: bool = coils[CL_POWER]
         is_boosting: bool = coils[CL_Boost_MODE]
@@ -213,6 +224,22 @@ class S21Client:
         ]
         operation_mode: int = holding_registers[HR_OPERATION_MODE]
         manual_fan_speed_percent: int = holding_registers[HR_ManualSPEED]
+        try:
+            heat_exchanger_type = HeatExchangerType(
+                holding_registers[HR_BPS_ROTOR_TYPE]
+            )
+        except ValueError:
+            heat_exchanger_type = None
+        heat_exchanger_mode = None
+        heat_exchanger_control_percent = None
+        if heat_exchanger_type not in (None, HeatExchangerType.NOT_AVAILABLE):
+            try:
+                heat_exchanger_mode = HeatExchangerMode(
+                    holding_registers[HR_BPS_ROTOR_MODE]
+                )
+            except ValueError:
+                pass
+            heat_exchanger_control_percent = input_registers[IR_BPS_ROTOR_U]
 
         self.device = ClimateDevice(
             available=True,
@@ -319,6 +346,9 @@ class S21Client:
             ),
             weekly_schedule_fan_mode=input_registers[IR_WeeklySPEED_MODE],
             weekly_schedule_target_temperature=input_registers[IR_WeeklySetTEMP],
+            heat_exchanger_type=heat_exchanger_type,
+            heat_exchanger_mode=heat_exchanger_mode,
+            heat_exchanger_control_percent=heat_exchanger_control_percent,
         )
 
         return self.device
@@ -353,6 +383,9 @@ class S21Client:
 
     async def _set_temperature(self, temp_celsius: int) -> None:
         await self._write_register(HR_SetTEMP, temp_celsius)
+
+    async def _set_heat_exchanger_mode(self, mode: HeatExchangerMode) -> None:
+        await self._write_register(HR_BPS_ROTOR_MODE, int(mode))
 
     async def _reset_filter_change_timer(self) -> None:
         await self._write_coil(CL_RESET_FILTER_TIMER, True)
