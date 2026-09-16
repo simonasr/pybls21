@@ -687,21 +687,23 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
 
         client.client.connect.assert_not_called()
 
-    async def test_set_heat_exchanger_mode(self):
+    async def test_set_heat_exchanger_mode_supports_all_modes(self):
         self.server.data_bank.set_holding_registers(
             HR_BPS_ROTOR_TYPE, [HeatExchangerType.ROTARY_DISCRETE]
         )
-        self.server.data_bank.set_holding_registers(
-            HR_BPS_ROTOR_MODE, [HeatExchangerMode.AUTO]
-        )
 
         client = S21Client(host=self.server.host, port=self.server.port)
-        await client.set_heat_exchanger_mode(HeatExchangerMode.HEAT_RECOVERY)
-        device = await client.poll()
-
-        self.assertEqual(
-            device.heat_exchanger_mode, HeatExchangerMode.HEAT_RECOVERY
-        )
+        for mode in HeatExchangerMode:
+            with self.subTest(mode=mode):
+                await client.set_heat_exchanger_mode(mode)
+                self.assertEqual(
+                    self.server.data_bank.get_holding_registers(
+                        HR_BPS_ROTOR_MODE, 1
+                    ),
+                    [int(mode)],
+                )
+                device = await client.poll()
+                self.assertEqual(device.heat_exchanger_mode, mode)
 
     async def test_set_heat_exchanger_mode_rejects_untyped_values(self):
         client = S21Client(host=self.server.host, port=self.server.port)
