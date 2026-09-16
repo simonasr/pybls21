@@ -35,9 +35,14 @@ class HeatExchangerType(IntEnum):
 
 
 class HeatExchangerMode(IntEnum):
-    HEAT_RECOVERY = 0
-    BYPASS = 1
+    RECOVERY_ON = 0
+    RECOVERY_OFF = 1
     AUTO = 2
+
+    BYPASS_CLOSED = RECOVERY_ON
+    ROTOR_ON = RECOVERY_ON
+    BYPASS_OPEN = RECOVERY_OFF
+    ROTOR_OFF = RECOVERY_OFF
 
 
 class ClimateDevice(NamedTuple):

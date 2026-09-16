@@ -1,8 +1,8 @@
 # Extended telemetry
 
 `poll()` returns a `ClimateDevice` with the original climate fields plus these
-read-only measurements. Most values come from the expanded input-register
-request; `heat_exchanger_type` and `heat_exchanger_mode` come from the expanded
+telemetry fields. Most values come from the expanded input-register request;
+`heat_exchanger_type` and `heat_exchanger_mode` come from the expanded
 holding-register request.
 
 Register names and units follow the
@@ -24,6 +24,16 @@ Register names and units follow the
 | `filter_state`, `alarm_state`, `weekly_schedule_fan_mode`, `weekly_schedule_target_temperature` | protocol value |
 | `heat_exchanger_type`, `heat_exchanger_mode` | protocol enum |
 | `heat_exchanger_control_percent` | % |
+
+`heat_exchanger_mode` is both reported by `poll()` and writable through
+`set_heat_exchanger_mode()`. Its recovery-oriented names have hardware-specific
+aliases matching the protocol actions:
+
+| Value | Canonical mode | Bypass alias | Rotary alias |
+| --- | --- | --- | --- |
+| `0` | `RECOVERY_ON` | `BYPASS_CLOSED` | `ROTOR_ON` |
+| `1` | `RECOVERY_OFF` | `BYPASS_OPEN` | `ROTOR_OFF` |
+| `2` | `AUTO` | `AUTO` | `AUTO` |
 
 Unavailable temperature sensors and optional humidity, CO₂, PM2.5, and VOC
 sensors are returned as `None`. Zero remains a valid value for airflow,

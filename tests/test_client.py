@@ -372,7 +372,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(device.heat_exchanger_mode)
         self.assertIsNone(device.heat_exchanger_control_percent)
 
-    async def test_poll_when_heat_exchanger_values_are_unknown(self):
+    async def test_poll_when_heat_exchanger_type_is_unknown(self):
         self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_TYPE, [99])
         self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_MODE, [99])
 
@@ -381,6 +381,23 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(device.heat_exchanger_type)
         self.assertIsNone(device.heat_exchanger_mode)
+        self.assertIsNone(device.heat_exchanger_control_percent)
+
+    async def test_poll_when_heat_exchanger_mode_is_unknown(self):
+        self.server.data_bank.set_holding_registers(
+            HR_BPS_ROTOR_TYPE, [HeatExchangerType.ROTARY_DISCRETE]
+        )
+        self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_MODE, [99])
+        self.server.data_bank.set_input_registers(IR_BPS_ROTOR_U, [37])
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        device = await client.poll()
+
+        self.assertEqual(
+            device.heat_exchanger_type, HeatExchangerType.ROTARY_DISCRETE
+        )
+        self.assertIsNone(device.heat_exchanger_mode)
+        self.assertEqual(device.heat_exchanger_control_percent, 37)
 
     async def test_poll_when_device_is_off(self):
         self.server.data_bank.set_coils(CL_POWER, [False])
@@ -704,6 +721,16 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
                 )
                 device = await client.poll()
                 self.assertEqual(device.heat_exchanger_mode, mode)
+
+    def test_heat_exchanger_mode_hardware_aliases(self):
+        self.assertIs(
+            HeatExchangerMode.BYPASS_CLOSED, HeatExchangerMode.RECOVERY_ON
+        )
+        self.assertIs(HeatExchangerMode.ROTOR_ON, HeatExchangerMode.RECOVERY_ON)
+        self.assertIs(
+            HeatExchangerMode.BYPASS_OPEN, HeatExchangerMode.RECOVERY_OFF
+        )
+        self.assertIs(HeatExchangerMode.ROTOR_OFF, HeatExchangerMode.RECOVERY_OFF)
 
     async def test_set_heat_exchanger_mode_rejects_untyped_values(self):
         client = S21Client(host=self.server.host, port=self.server.port)
