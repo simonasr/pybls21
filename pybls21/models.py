@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import List, NamedTuple, Optional
 
 TEMP_CELSIUS: str = "°C"
@@ -23,6 +23,26 @@ class HVACAction(str, Enum):
     HEATING = "heating"
     IDLE = "idle"
     OFF = "off"
+
+
+class HeatExchangerType(IntEnum):
+    NOT_AVAILABLE = 0
+    BYPASS_TWO_POINT = 1
+    BYPASS_ANALOG = 2
+    ROTARY_DISCRETE = 3
+    ROTARY_ANALOG = 4
+    BYPASS_THREE_POINT = 5
+
+
+class HeatExchangerMode(IntEnum):
+    RECOVERY_ON = 0
+    RECOVERY_OFF = 1
+    AUTO = 2
+
+    BYPASS_CLOSED = RECOVERY_ON
+    ROTOR_ON = RECOVERY_ON
+    BYPASS_OPEN = RECOVERY_OFF
+    ROTOR_OFF = RECOVERY_OFF
 
 
 class ClimateDevice(NamedTuple):
@@ -79,3 +99,6 @@ class ClimateDevice(NamedTuple):
     total_working_time_minutes: Optional[int] = None
     weekly_schedule_fan_mode: Optional[int] = None
     weekly_schedule_target_temperature: Optional[int] = None
+    heat_exchanger_type: Optional[HeatExchangerType] = None
+    heat_exchanger_mode: Optional[HeatExchangerMode] = None
+    heat_exchanger_control_percent: Optional[int] = None

@@ -6,7 +6,14 @@ from pyModbusTCP.server import DataBank, ModbusServer
 from pybls21.client import S21Client
 from pybls21.constants import *
 from pybls21.exceptions import *
-from pybls21.models import ClimateDevice, ClimateEntityFeature, HVACAction, HVACMode
+from pybls21.models import (
+    ClimateDevice,
+    ClimateEntityFeature,
+    HeatExchangerMode,
+    HeatExchangerType,
+    HVACAction,
+    HVACMode,
+)
 
 
 class ErrorResponse:
@@ -91,6 +98,26 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ModbusCommunicationException):
             await client.poll()
 
+    async def test_poll_expands_existing_reads_without_more_requests(self):
+        client = S21Client(host=self.server.host, port=self.server.port)
+        input_reader = client._read_input_registers
+        holding_reader = client._read_holding_registers
+        coil_reader = client._read_coils
+        client._read_input_registers = AsyncMock(wraps=input_reader)
+        client._read_holding_registers = AsyncMock(wraps=holding_reader)
+        client._read_coils = AsyncMock(wraps=coil_reader)
+
+        await client.poll()
+
+        self.assertEqual(client._read_input_registers.await_count, 2)
+        self.assertEqual(client._read_holding_registers.await_count, 1)
+        self.assertEqual(client._read_coils.await_count, 1)
+        client._read_holding_registers.assert_awaited_once_with(0, count=75)
+        self.assertEqual(
+            client._read_input_registers.await_args_list[-1].kwargs["count"],
+            46,
+        )
+
     async def test_turn_on_when_write_fails_raises_exception(self):
         client = S21Client(host=self.server.host, port=self.server.port)
         client.client.connect = AsyncMock(return_value=True)
@@ -108,6 +135,13 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.server.data_bank.set_holding_registers(HR_SPEED_MODE, [2])
         self.server.data_bank.set_holding_registers(HR_OPERATION_MODE, [0])
         self.server.data_bank.set_holding_registers(HR_ManualSPEED, [100])
+        self.server.data_bank.set_holding_registers(
+            HR_BPS_ROTOR_TYPE, [HeatExchangerType.ROTARY_DISCRETE]
+        )
+        self.server.data_bank.set_holding_registers(
+            HR_BPS_ROTOR_MODE, [HeatExchangerMode.AUTO]
+        )
+        self.server.data_bank.set_input_registers(IR_BPS_ROTOR_U, [37])
         self.server.data_bank.set_input_registers(
             0,
             [
@@ -219,6 +253,9 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
                 total_working_time_minutes=432367,
                 weekly_schedule_fan_mode=4,
                 weekly_schedule_target_temperature=22,
+                heat_exchanger_type=HeatExchangerType.ROTARY_DISCRETE,
+                heat_exchanger_mode=HeatExchangerMode.AUTO,
+                heat_exchanger_control_percent=37,
             ),
         )
 
@@ -237,6 +274,11 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device.analog_sensor_percent, 0)
         self.assertEqual(device.supply_airflow, 0)
         self.assertEqual(device.supply_pressure, 0)
+        self.assertEqual(
+            device.heat_exchanger_type, HeatExchangerType.NOT_AVAILABLE
+        )
+        self.assertIsNone(device.heat_exchanger_mode)
+        self.assertIsNone(device.heat_exchanger_control_percent)
 
     async def test_poll_when_temperature_sensors_are_unavailable(self):
         self.server.data_bank.set_holding_registers(HR_OPERATION_MODE, [3])
@@ -326,6 +368,36 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(device.selected_temperature)
         self.assertIsNone(device.current_co2)
         self.assertIsNone(device.timer_remaining_seconds)
+        self.assertIsNone(device.heat_exchanger_type)
+        self.assertIsNone(device.heat_exchanger_mode)
+        self.assertIsNone(device.heat_exchanger_control_percent)
+
+    async def test_poll_when_heat_exchanger_type_is_unknown(self):
+        self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_TYPE, [99])
+        self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_MODE, [99])
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        device = await client.poll()
+
+        self.assertIsNone(device.heat_exchanger_type)
+        self.assertIsNone(device.heat_exchanger_mode)
+        self.assertIsNone(device.heat_exchanger_control_percent)
+
+    async def test_poll_when_heat_exchanger_mode_is_unknown(self):
+        self.server.data_bank.set_holding_registers(
+            HR_BPS_ROTOR_TYPE, [HeatExchangerType.ROTARY_DISCRETE]
+        )
+        self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_MODE, [99])
+        self.server.data_bank.set_input_registers(IR_BPS_ROTOR_U, [37])
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        device = await client.poll()
+
+        self.assertEqual(
+            device.heat_exchanger_type, HeatExchangerType.ROTARY_DISCRETE
+        )
+        self.assertIsNone(device.heat_exchanger_mode)
+        self.assertEqual(device.heat_exchanger_control_percent, 37)
 
     async def test_poll_when_device_is_off(self):
         self.server.data_bank.set_coils(CL_POWER, [False])
@@ -629,6 +701,45 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
             with self.subTest(temperature=invalid_temperature):
                 with self.assertRaises(ValueError):
                     await client.set_temperature(invalid_temperature)
+
+        client.client.connect.assert_not_called()
+
+    async def test_set_heat_exchanger_mode_supports_all_modes(self):
+        self.server.data_bank.set_holding_registers(
+            HR_BPS_ROTOR_TYPE, [HeatExchangerType.ROTARY_DISCRETE]
+        )
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        for mode in HeatExchangerMode:
+            with self.subTest(mode=mode):
+                await client.set_heat_exchanger_mode(mode)
+                self.assertEqual(
+                    self.server.data_bank.get_holding_registers(
+                        HR_BPS_ROTOR_MODE, 1
+                    ),
+                    [int(mode)],
+                )
+                device = await client.poll()
+                self.assertEqual(device.heat_exchanger_mode, mode)
+
+    def test_heat_exchanger_mode_hardware_aliases(self):
+        self.assertIs(
+            HeatExchangerMode.BYPASS_CLOSED, HeatExchangerMode.RECOVERY_ON
+        )
+        self.assertIs(HeatExchangerMode.ROTOR_ON, HeatExchangerMode.RECOVERY_ON)
+        self.assertIs(
+            HeatExchangerMode.BYPASS_OPEN, HeatExchangerMode.RECOVERY_OFF
+        )
+        self.assertIs(HeatExchangerMode.ROTOR_OFF, HeatExchangerMode.RECOVERY_OFF)
+
+    async def test_set_heat_exchanger_mode_rejects_untyped_values(self):
+        client = S21Client(host=self.server.host, port=self.server.port)
+        client.client.connect = AsyncMock(return_value=True)
+
+        for invalid_mode in (-1, 0, 3, "auto"):
+            with self.subTest(mode=invalid_mode):
+                with self.assertRaises(ValueError):
+                    await client.set_heat_exchanger_mode(invalid_mode)
 
         client.client.connect.assert_not_called()
 
