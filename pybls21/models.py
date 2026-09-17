@@ -45,6 +45,19 @@ class HeatExchangerMode(IntEnum):
     ROTOR_OFF = RECOVERY_OFF
 
 
+class MainHeaterType(IntEnum):
+    OFF = 0
+    ELECTRIC = 1
+    WATER = 2
+
+
+class FreezeProtectionMode(IntEnum):
+    OFF = 0
+    PREHEATING = 1
+    BYPASS_OR_ROTOR = 2
+    FAN_IMBALANCE = 3
+
+
 class ClimateDevice(NamedTuple):
     available: bool
     name: str
@@ -102,3 +115,7 @@ class ClimateDevice(NamedTuple):
     heat_exchanger_type: Optional[HeatExchangerType] = None
     heat_exchanger_mode: Optional[HeatExchangerMode] = None
     heat_exchanger_control_percent: Optional[int] = None
+    configured_main_heater_type: Optional[MainHeaterType] = None
+    configured_freeze_protection_mode: Optional[FreezeProtectionMode] = None
+    preheater_pid_control_signal_percent: Optional[int] = None
+    main_heater_pid_control_signal_percent: Optional[int] = None

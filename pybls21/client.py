@@ -9,10 +9,12 @@ from .models import (
     TEMP_CELSIUS,
     ClimateDevice,
     ClimateEntityFeature,
+    FreezeProtectionMode,
     HeatExchangerMode,
     HeatExchangerType,
     HVACAction,
     HVACMode,
+    MainHeaterType,
 )
 
 
@@ -225,6 +227,18 @@ class S21Client:
         operation_mode: int = holding_registers[HR_OPERATION_MODE]
         manual_fan_speed_percent: int = holding_registers[HR_ManualSPEED]
         try:
+            configured_main_heater_type = MainHeaterType(
+                holding_registers[HR_MainHEATER_TYPE]
+            )
+        except ValueError:
+            configured_main_heater_type = None
+        try:
+            configured_freeze_protection_mode = FreezeProtectionMode(
+                holding_registers[HR_DEF_MODE]
+            )
+        except ValueError:
+            configured_freeze_protection_mode = None
+        try:
             heat_exchanger_type = HeatExchangerType(
                 holding_registers[HR_BPS_ROTOR_TYPE]
             )
@@ -349,6 +363,10 @@ class S21Client:
             heat_exchanger_type=heat_exchanger_type,
             heat_exchanger_mode=heat_exchanger_mode,
             heat_exchanger_control_percent=heat_exchanger_control_percent,
+            configured_main_heater_type=configured_main_heater_type,
+            configured_freeze_protection_mode=configured_freeze_protection_mode,
+            preheater_pid_control_signal_percent=input_registers[IR_PreHeater_U],
+            main_heater_pid_control_signal_percent=input_registers[IR_MainHeater_U],
         )
 
         return self.device

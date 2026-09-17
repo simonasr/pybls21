@@ -2,8 +2,9 @@
 
 `poll()` returns a `ClimateDevice` with the original climate fields plus these
 telemetry fields. Most values come from the expanded input-register request;
-`heat_exchanger_type` and `heat_exchanger_mode` come from the expanded
-holding-register request.
+`heat_exchanger_type`, `heat_exchanger_mode`,
+`configured_main_heater_type`, and `configured_freeze_protection_mode` come
+from the expanded holding-register request.
 
 Register names and units follow the
 [official Blauberg S21 Modbus table](https://blaubergventilatoren.de/uploads/download/b55_8_1en_a4_02_preview.pdf).
@@ -24,6 +25,8 @@ Register names and units follow the
 | `filter_state`, `alarm_state`, `weekly_schedule_fan_mode`, `weekly_schedule_target_temperature` | protocol value |
 | `heat_exchanger_type`, `heat_exchanger_mode` | protocol enum |
 | `heat_exchanger_control_percent` | % |
+| `configured_main_heater_type`, `configured_freeze_protection_mode` | protocol enum |
+| `preheater_pid_control_signal_percent`, `main_heater_pid_control_signal_percent` | raw protocol % |
 
 `heat_exchanger_mode` is both reported by `poll()` and writable through
 `set_heat_exchanger_mode()`. Its recovery-oriented names have hardware-specific
@@ -39,8 +42,15 @@ Unavailable temperature sensors and optional humidity, CO₂, PM2.5, and VOC
 sensors are returned as `None`. Zero remains a valid value for airflow,
 pressure, the 0–10 V sensor, battery voltage, and timers.
 
+The heater configuration fields report controller configuration, not detected
+hardware. The preheater and main-heater PID signals are the raw controller
+values from input registers 43 and 44. The documented range is 0 through 100%.
+These fields do not prove that a heater is installed or active. Heater mode,
+manual output, PID tuning, installer, and safety settings are intentionally not
+writable through this library.
+
 The appended `ClimateDevice` fields have defaults, so existing keyword and
 positional construction with fewer arguments remains valid. Because
-`ClimateDevice` is a `NamedTuple`, version 5.0 changes its tuple length from 53
-to 56. Code that unpacks all 53 values or checks the exact length must migrate
-to named-attribute access before upgrading.
+`ClimateDevice` is a `NamedTuple`, versions that append telemetry change its
+tuple length. Code that unpacks every value or checks the exact length must
+migrate to named-attribute access before upgrading.
