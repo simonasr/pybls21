@@ -9,10 +9,12 @@ from pybls21.exceptions import *
 from pybls21.models import (
     ClimateDevice,
     ClimateEntityFeature,
+    FreezeProtectionMode,
     HeatExchangerMode,
     HeatExchangerType,
     HVACAction,
     HVACMode,
+    MainHeaterType,
 )
 
 
@@ -136,11 +138,19 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.server.data_bank.set_holding_registers(HR_OPERATION_MODE, [0])
         self.server.data_bank.set_holding_registers(HR_ManualSPEED, [100])
         self.server.data_bank.set_holding_registers(
+            HR_MainHEATER_TYPE, [MainHeaterType.ELECTRIC]
+        )
+        self.server.data_bank.set_holding_registers(
+            HR_DEF_MODE, [FreezeProtectionMode.PREHEATING]
+        )
+        self.server.data_bank.set_holding_registers(
             HR_BPS_ROTOR_TYPE, [HeatExchangerType.ROTARY_DISCRETE]
         )
         self.server.data_bank.set_holding_registers(
             HR_BPS_ROTOR_MODE, [HeatExchangerMode.AUTO]
         )
+        self.server.data_bank.set_input_registers(IR_PreHeater_U, [87])
+        self.server.data_bank.set_input_registers(IR_MainHeater_U, [73])
         self.server.data_bank.set_input_registers(IR_BPS_ROTOR_U, [37])
         self.server.data_bank.set_input_registers(
             0,
@@ -256,6 +266,10 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
                 heat_exchanger_type=HeatExchangerType.ROTARY_DISCRETE,
                 heat_exchanger_mode=HeatExchangerMode.AUTO,
                 heat_exchanger_control_percent=37,
+                configured_main_heater_type=MainHeaterType.ELECTRIC,
+                configured_freeze_protection_mode=FreezeProtectionMode.PREHEATING,
+                preheater_pid_control_signal_percent=87,
+                main_heater_pid_control_signal_percent=73,
             ),
         )
 
@@ -371,6 +385,47 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(device.heat_exchanger_type)
         self.assertIsNone(device.heat_exchanger_mode)
         self.assertIsNone(device.heat_exchanger_control_percent)
+        self.assertIsNone(device.configured_main_heater_type)
+        self.assertIsNone(device.configured_freeze_protection_mode)
+        self.assertIsNone(device.preheater_pid_control_signal_percent)
+        self.assertIsNone(device.main_heater_pid_control_signal_percent)
+
+    async def test_poll_reports_configured_heater_modes_and_raw_pid_signals(self):
+        self.server.data_bank.set_holding_registers(
+            HR_MainHEATER_TYPE, [MainHeaterType.WATER]
+        )
+        self.server.data_bank.set_holding_registers(
+            HR_DEF_MODE, [FreezeProtectionMode.FAN_IMBALANCE]
+        )
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        for signal in (0, 100):
+            with self.subTest(signal=signal):
+                self.server.data_bank.set_input_registers(IR_PreHeater_U, [signal])
+                self.server.data_bank.set_input_registers(IR_MainHeater_U, [signal])
+                device = await client.poll()
+
+                self.assertEqual(
+                    device.configured_main_heater_type, MainHeaterType.WATER
+                )
+                self.assertEqual(
+                    device.configured_freeze_protection_mode,
+                    FreezeProtectionMode.FAN_IMBALANCE,
+                )
+                self.assertEqual(device.preheater_pid_control_signal_percent, signal)
+                self.assertEqual(device.main_heater_pid_control_signal_percent, signal)
+
+    async def test_poll_when_heater_configuration_is_unknown(self):
+        self.server.data_bank.set_holding_registers(HR_MainHEATER_TYPE, [99])
+        self.server.data_bank.set_holding_registers(HR_DEF_MODE, [99])
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        device = await client.poll()
+
+        self.assertIsNone(device.configured_main_heater_type)
+        self.assertIsNone(device.configured_freeze_protection_mode)
+        self.assertEqual(device.preheater_pid_control_signal_percent, 0)
+        self.assertEqual(device.main_heater_pid_control_signal_percent, 0)
 
     async def test_poll_when_heat_exchanger_type_is_unknown(self):
         self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_TYPE, [99])
