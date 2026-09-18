@@ -58,3 +58,4 @@ IR_ALARM = 38
 IR_PreHeater_U = 43
 IR_MainHeater_U = 44
 IR_BPS_ROTOR_U = 45
+IR_StatusBpsRotor = 51

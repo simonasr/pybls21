@@ -117,7 +117,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         client._read_holding_registers.assert_awaited_once_with(0, count=75)
         self.assertEqual(
             client._read_input_registers.await_args_list[-1].kwargs["count"],
-            46,
+            52,
         )
 
     async def test_turn_on_when_write_fails_raises_exception(self):
@@ -152,6 +152,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.server.data_bank.set_input_registers(IR_PreHeater_U, [87])
         self.server.data_bank.set_input_registers(IR_MainHeater_U, [73])
         self.server.data_bank.set_input_registers(IR_BPS_ROTOR_U, [37])
+        self.server.data_bank.set_input_registers(IR_StatusBpsRotor, [64])
         self.server.data_bank.set_input_registers(
             0,
             [
@@ -270,6 +271,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
                 configured_freeze_protection_mode=FreezeProtectionMode.PREHEATING,
                 preheater_pid_control_signal_percent=87,
                 main_heater_pid_control_signal_percent=73,
+                heat_exchanger_status_percent=64,
             ),
         )
 
@@ -293,6 +295,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(device.heat_exchanger_mode)
         self.assertIsNone(device.heat_exchanger_control_percent)
+        self.assertIsNone(device.heat_exchanger_status_percent)
 
     async def test_poll_when_temperature_sensors_are_unavailable(self):
         self.server.data_bank.set_holding_registers(HR_OPERATION_MODE, [3])
@@ -389,6 +392,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(device.configured_freeze_protection_mode)
         self.assertIsNone(device.preheater_pid_control_signal_percent)
         self.assertIsNone(device.main_heater_pid_control_signal_percent)
+        self.assertIsNone(device.heat_exchanger_status_percent)
 
     async def test_poll_reports_configured_heater_modes_and_raw_pid_signals(self):
         self.server.data_bank.set_holding_registers(
@@ -437,6 +441,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(device.heat_exchanger_type)
         self.assertIsNone(device.heat_exchanger_mode)
         self.assertIsNone(device.heat_exchanger_control_percent)
+        self.assertIsNone(device.heat_exchanger_status_percent)
 
     async def test_poll_when_heat_exchanger_mode_is_unknown(self):
         self.server.data_bank.set_holding_registers(
@@ -444,6 +449,7 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         )
         self.server.data_bank.set_holding_registers(HR_BPS_ROTOR_MODE, [99])
         self.server.data_bank.set_input_registers(IR_BPS_ROTOR_U, [37])
+        self.server.data_bank.set_input_registers(IR_StatusBpsRotor, [64])
 
         client = S21Client(host=self.server.host, port=self.server.port)
         device = await client.poll()
@@ -453,6 +459,22 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(device.heat_exchanger_mode)
         self.assertEqual(device.heat_exchanger_control_percent, 37)
+        self.assertEqual(device.heat_exchanger_status_percent, 64)
+
+    async def test_poll_reports_raw_heat_exchanger_status_boundaries(self):
+        self.server.data_bank.set_holding_registers(
+            HR_BPS_ROTOR_TYPE, [HeatExchangerType.ROTARY_ANALOG]
+        )
+
+        client = S21Client(host=self.server.host, port=self.server.port)
+        for status in (0, 50, 100):
+            with self.subTest(status=status):
+                self.server.data_bank.set_input_registers(
+                    IR_StatusBpsRotor, [status]
+                )
+                device = await client.poll()
+
+                self.assertEqual(device.heat_exchanger_status_percent, status)
 
     async def test_poll_when_device_is_off(self):
         self.server.data_bank.set_coils(CL_POWER, [False])
@@ -828,7 +850,7 @@ class TestDataBank(DataBank):
 
     def __init__(self):
         super().__init__(
-            coils_size=25, d_inputs_size=72, h_regs_size=182, i_regs_size=51
+            coils_size=25, d_inputs_size=72, h_regs_size=182, i_regs_size=52
         )
         self.reset()
 

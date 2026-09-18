@@ -201,7 +201,7 @@ class S21Client:
 
         coils = await self._read_coils(0, count=4)
         holding_registers = await self._read_holding_registers(0, count=75)
-        input_registers = await self._read_input_registers(0, count=46)
+        input_registers = await self._read_input_registers(0, count=52)
 
         is_on: bool = coils[CL_POWER]
         is_boosting: bool = coils[CL_Boost_MODE]
@@ -246,6 +246,7 @@ class S21Client:
             heat_exchanger_type = None
         heat_exchanger_mode = None
         heat_exchanger_control_percent = None
+        heat_exchanger_status_percent = None
         if heat_exchanger_type not in (None, HeatExchangerType.NOT_AVAILABLE):
             try:
                 heat_exchanger_mode = HeatExchangerMode(
@@ -254,6 +255,7 @@ class S21Client:
             except ValueError:
                 pass
             heat_exchanger_control_percent = input_registers[IR_BPS_ROTOR_U]
+            heat_exchanger_status_percent = input_registers[IR_StatusBpsRotor]
 
         self.device = ClimateDevice(
             available=True,
@@ -367,6 +369,7 @@ class S21Client:
             configured_freeze_protection_mode=configured_freeze_protection_mode,
             preheater_pid_control_signal_percent=input_registers[IR_PreHeater_U],
             main_heater_pid_control_signal_percent=input_registers[IR_MainHeater_U],
+            heat_exchanger_status_percent=heat_exchanger_status_percent,
         )
 
         return self.device

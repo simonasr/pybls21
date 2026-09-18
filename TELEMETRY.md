@@ -24,7 +24,8 @@ Register names and units follow the
 | `filter_remaining_minutes`, `total_working_time_minutes` | minutes |
 | `filter_state`, `alarm_state`, `weekly_schedule_fan_mode`, `weekly_schedule_target_temperature` | protocol value |
 | `heat_exchanger_type`, `heat_exchanger_mode` | protocol enum |
-| `heat_exchanger_control_percent` | % |
+| `heat_exchanger_control_percent` | raw PID controller % |
+| `heat_exchanger_status_percent` | raw bypass/rotor status % |
 | `configured_main_heater_type`, `configured_freeze_protection_mode` | protocol enum |
 | `preheater_pid_control_signal_percent`, `main_heater_pid_control_signal_percent` | raw protocol % |
 
@@ -48,6 +49,14 @@ values from input registers 43 and 44. The documented range is 0 through 100%.
 These fields do not prove that a heater is installed or active. Heater mode,
 manual output, PID tuning, installer, and safety settings are intentionally not
 writable through this library.
+
+`heat_exchanger_control_percent` is the PID controller signal from input
+register 45. It is not the current actuator state. The controller-reported
+state comes from input register 51 as `heat_exchanger_status_percent`. Per the
+protocol, a status of 0 means a fully closed bypass or a rotor at maximum
+speed, while 100 means a fully open bypass or a fully stopped rotor. Consumers
+that need an intuitive heat-recovery activity percentage can calculate
+`100 - heat_exchanger_status_percent`.
 
 The appended `ClimateDevice` fields have defaults, so existing keyword and
 positional construction with fewer arguments remains valid. Because
