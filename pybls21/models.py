@@ -119,3 +119,4 @@ class ClimateDevice(NamedTuple):
     configured_freeze_protection_mode: Optional[FreezeProtectionMode] = None
     preheater_pid_control_signal_percent: Optional[int] = None
     main_heater_pid_control_signal_percent: Optional[int] = None
+    heat_exchanger_status_percent: Optional[int] = None
